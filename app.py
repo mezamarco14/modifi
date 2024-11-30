@@ -1,8 +1,7 @@
 from flask import Flask, request, jsonify, redirect, url_for
+import requests
 from msal import ConfidentialClientApplication
 from oauthlib.oauth2 import WebApplicationClient
-import requests
-import jwt
 import os
 from dotenv import load_dotenv
 
@@ -33,7 +32,6 @@ app_msal = ConfidentialClientApplication(
 # Configuración del cliente de Google OAuth
 google_client = WebApplicationClient(GOOGLE_CLIENT_ID)
 
-
 @app.route('/auth/<provider>', methods=['POST'])
 def authenticate(provider):
     """
@@ -47,7 +45,6 @@ def authenticate(provider):
     else:
         return jsonify({'error': 'Proveedor no soportado'}), 400
 
-
 def microsoft_login():
     """
     Redirige al cliente de Microsoft para iniciar sesión y devolver el código de autorización.
@@ -56,7 +53,7 @@ def microsoft_login():
         SCOPE,
         redirect_uri=url_for("microsoft_authorized", _external=True)
     )
-    return auth_url
+    return redirect(auth_url)
 
 
 @app.route(REDIRECT_PATH)
@@ -81,11 +78,9 @@ def microsoft_authorized():
         name = user_info.get("name")
         roles = user_info.get("roles", ["user"])
 
-        # Enviar los datos de usuario al API en la VPS
         return jsonify({"email": email, "name": name, "roles": roles})
     else:
         return "Error: No se obtuvo el token", 400
-
 
 def google_login():
     """
@@ -99,7 +94,7 @@ def google_login():
         redirect_uri=url_for("google_authorized", _external=True),
         scope=["openid", "email", "profile"],
     )
-    return request_uri
+    return redirect(request_uri)
 
 
 @app.route('/google/authorized')
@@ -136,11 +131,9 @@ def google_authorized():
         name = userinfo_response.json()["name"]
         roles = ["user"]
 
-        # Enviar los datos de usuario al API en la VPS
         return jsonify({"email": email, "name": name, "roles": roles})
     else:
         return "Error: No se pudo verificar el correo electrónico de Google.", 400
 
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5001)
