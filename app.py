@@ -32,6 +32,7 @@ app_msal = ConfidentialClientApplication(
 # Configuración del cliente de Google OAuth
 google_client = WebApplicationClient(GOOGLE_CLIENT_ID)
 
+
 @app.route('/auth/<provider>', methods=['POST'])
 def authenticate(provider):
     """
@@ -44,6 +45,7 @@ def authenticate(provider):
         return redirect(google_login())
     else:
         return jsonify({'error': 'Proveedor no soportado'}), 400
+
 
 def microsoft_login():
     """
@@ -78,9 +80,11 @@ def microsoft_authorized():
         name = user_info.get("name")
         roles = user_info.get("roles", ["user"])
 
+        # Retornamos los datos del usuario
         return jsonify({"email": email, "name": name, "roles": roles})
     else:
         return "Error: No se obtuvo el token", 400
+
 
 def google_login():
     """
@@ -134,6 +138,7 @@ def google_authorized():
         return jsonify({"email": email, "name": name, "roles": roles})
     else:
         return "Error: No se pudo verificar el correo electrónico de Google.", 400
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
