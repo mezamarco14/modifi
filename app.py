@@ -179,5 +179,8 @@ def logout():
     return redirect(url_for('index'))
 
 # Arrancar la aplicación Flask en el puerto 5000
+#if __name__ == "__main__":
+   # app.run(host="0.0.0.0", port=5000, debug=True)
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+
