@@ -1,19 +1,15 @@
-from flask import Flask, request, jsonify, redirect, url_for, render_template
+from flask import Flask, request, redirect, url_for, session, jsonify
 from msal import ConfidentialClientApplication
 from oauthlib.oauth2 import WebApplicationClient
 import requests
-import jwt
 import os
 from dotenv import load_dotenv
-from flask_cors import CORS  # Habilitar CORS
 
-# Cargar variables de entorno
+# Cargar las variables de entorno
 load_dotenv()
 
 app = Flask(__name__)
-
-# Habilitar CORS para permitir solicitudes desde otros orígenes (como localhost)
-CORS(app)
+app.secret_key = os.getenv('SECRET_KEY', 'default_secret_key')
 
 # Configuración de Microsoft (Azure)
 CLIENT_ID = os.getenv('CLIENT_ID')
@@ -31,7 +27,7 @@ GOOGLE_DISCOVERY_URL = os.getenv("GOOGLE_DISCOVERY_URL")
 app_msal = ConfidentialClientApplication(
     CLIENT_ID,
     authority=AUTHORITY,
-    client_credential=CLIENT_SECRET
+    client_credential=CLIENT_SECRET,
 )
 
 # Configuración del cliente de Google OAuth
@@ -104,7 +100,7 @@ def microsoft_authorized():
         name = user_info.get("name")
         roles = user_info.get("roles", ["user"])
 
-        # Enviar los datos de usuario al API en la VPS
+        # Redirigir a la ruta local con los datos
         return redirect(f"http://localhost:5000/usuario?email={email}&name={name}&roles={roles}")
     else:
         return "Error: No se obtuvo el token", 400
@@ -158,7 +154,7 @@ def google_authorized():
         name = userinfo_response.json()["name"]
         roles = ["user"]
 
-        # Enviar los datos de usuario al API en la VPS
+        # Redirigir a la ruta local con los datos
         return redirect(f"http://localhost:5000/usuario?email={email}&name={name}&roles={roles}")
     else:
         return "Error: No se pudo verificar el correo electrónico de Google.", 400
