@@ -1,25 +1,14 @@
 import requests
-from flask import Flask, redirect, request, jsonify, session, url_for
+import jwt
+import datetime
+from flask import Flask, redirect, request, url_for, session
 from msal import ConfidentialClientApplication
 from oauthlib.oauth2 import WebApplicationClient
 import os
-from user_agents import parse  # Instalar con `pip install pyyaml user-agents`
-from pymongo import MongoClient
-import certifi
 
 # Inicializar la aplicación Flask
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")
-
-# Conexión a MongoDB Atlas
-MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(
-    MONGO_URI,
-    tls=True,
-    tlsCAFile=certifi.where()
-)
-db = client['db_Upt_Usuarios']
-accesos_users_collection = db['Accesos_users']
 
 # Variables de entorno para Microsoft (Azure)
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -46,27 +35,12 @@ google_client = WebApplicationClient(GOOGLE_CLIENT_ID)
 # Ruta de inicio de sesión
 @app.route('/')
 def index():
-    # Verificar si el usuario está autenticado
-    if session.get("user"):
-        # Detectar dispositivo móvil
-        user_agent = request.headers.get("User-Agent")
-        ua = parse(user_agent)
-        if ua.is_mobile:
-            # Si es móvil, mostrar los datos en la interfaz
-            return f"Hola, {session['user']['name']}! Roles: {session.get('roles', [])}"
-        else:
-            # Si es web, redirigir a la IP final
-            email = session['user']['email']
-            name = session['user']['name']
-            roles = session.get('roles', [])
-            return redirect(f"http://161.132.50.153/?email={email}&name={name}&roles={','.join(roles)}")
-    else:
-        return '''
-            <h1>Bienvenido</h1>
-            <p>Inicia sesión con:</p>
-            <a href="/login">Microsoft</a><br>
-            <a href="/google/login">Google</a>
-        '''
+    return '''
+        <h1>Bienvenido</h1>
+        <p>Inicia sesión con:</p>
+        <a href="/login">Microsoft</a><br>
+        <a href="/google/login">Google</a>
+    '''
 
 # Ruta para iniciar sesión con Microsoft
 @app.route('/login')
@@ -96,22 +70,22 @@ def authorized():
         name = user_info.get("name")  # Nombre
         roles = result.get('id_token_claims', {}).get('roles', [])
 
+        # Si el correo no tiene rol de admin, asignamos el rol de user por defecto
         if not roles:
             roles = ["user"]
+        elif "admin" not in roles:
+            roles.append("user")
 
-        # Guardar en la sesión
-        session['user'] = {'email': email, 'name': name}
-        session['roles'] = roles
+        # Crear el JWT con los datos del usuario
+        token = create_jwt(email, name, roles)
 
-        # Guardar en la base de datos
-        user_data = {
-            "email": email,
-            "name": name,
-            "roles": roles
-        }
-        accesos_users_collection.insert_one(user_data)
+        # Si la solicitud proviene de un dispositivo móvil, mostrar los datos directamente
+        if is_mobile(request.headers.get('User-Agent', '')):
+            return f"Hola, {name}! Roles: {', '.join(roles)}"
 
-        return redirect("/")  # Redirigir al índice
+        # Si no es móvil, redirigir a la IP final con el JWT
+        redirect_url = f"http://161.132.50.153/?token={token}"
+        return redirect(redirect_url)
 
     return "Error al obtener el token de acceso", 400
 
@@ -159,31 +133,50 @@ def google_authorized():
         name = userinfo_response.json()["name"]
         roles = ["user"]
 
-        # Guardar en la sesión
-        session['user'] = {'email': email, 'name': name}
-        session['roles'] = roles
+        # Si el correo no tiene rol de admin, asignamos el rol de user por defecto
+        if "admin" not in roles:
+            roles.append("user")
 
-        # Guardar en la base de datos
-        user_data = {
-            "email": email,
-            "name": name,
-            "roles": roles
-        }
-        accesos_users_collection.insert_one(user_data)
+        # Crear el JWT con los datos del usuario
+        token = create_jwt(email, name, roles)
 
-        return redirect("/")  # Redirigir al índice
+        # Si la solicitud proviene de un dispositivo móvil, mostrar los datos directamente
+        if is_mobile(request.headers.get('User-Agent', '')):
+            return f"Hola, {name}! Roles: {', '.join(roles)}"
+
+        # Si no es móvil, redirigir a la IP final con el JWT
+        redirect_url = f"http://161.132.50.153/?token={token}"
+        return redirect(redirect_url)
 
     return "Error: No se pudo verificar el correo electrónico de Google.", 400
 
-# Ruta de logout
+# Función para crear el JWT
+def create_jwt(email, name, roles):
+    payload = {
+        'sub': email,
+        'name': name,
+        'roles': roles,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+    }
+    secret_key = os.getenv("JWT_SECRET_KEY", "default_secret_key")
+    token = jwt.encode(payload, secret_key, algorithm="HS256")
+    return token
+
+# Función para determinar si la solicitud proviene de un dispositivo móvil
+def is_mobile(user_agent):
+    mobile_keywords = ["iphone", "android", "blackberry", "windows phone", "mobile"]
+    user_agent = user_agent.lower()
+    return any(keyword in user_agent for keyword in mobile_keywords)
+
+# Ruta para cerrar sesión (Logout)
 @app.route('/logout')
 def logout():
-    # Limpiar los datos de la sesión
-    session.pop('user', None)
-    session.pop('roles', None)
+    # Limpiar la sesión de Flask
+    session.clear()
 
-    # Redirigir al inicio después de cerrar sesión
-    return redirect("/")
+    # Si el usuario estaba conectado a través de Google o Microsoft, puedes hacer un logout desde el proveedor
+    # Redirigir a la página de inicio después de hacer logout
+    return redirect(url_for('index'))
 
 # Arrancar la aplicación Flask en el puerto 5000
 if __name__ == "__main__":
