@@ -1,14 +1,19 @@
-from flask import Flask, request, jsonify, redirect, url_for
-import requests
+from flask import Flask, request, jsonify, redirect, url_for, render_template
 from msal import ConfidentialClientApplication
 from oauthlib.oauth2 import WebApplicationClient
+import requests
+import jwt
 import os
 from dotenv import load_dotenv
+from flask_cors import CORS  # Habilitar CORS
 
 # Cargar variables de entorno
 load_dotenv()
 
 app = Flask(__name__)
+
+# Habilitar CORS para permitir solicitudes desde otros orígenes (como localhost)
+CORS(app)
 
 # Configuración de Microsoft (Azure)
 CLIENT_ID = os.getenv('CLIENT_ID')
@@ -32,20 +37,40 @@ app_msal = ConfidentialClientApplication(
 # Configuración del cliente de Google OAuth
 google_client = WebApplicationClient(GOOGLE_CLIENT_ID)
 
+@app.route('/seleccion_proveedor')
+def seleccion_proveedor():
+    """
+    Página donde el usuario selecciona el proveedor de autenticación (Microsoft o Google).
+    """
+    return """
+    <html>
+        <body>
+            <h1>Selecciona el proveedor de autenticación</h1>
+            <form action="/auth" method="post">
+                <label for="proveedor">Proveedor:</label>
+                <select name="proveedor" id="proveedor">
+                    <option value="microsoft">Microsoft</option>
+                    <option value="google">Google</option>
+                </select>
+                <button type="submit">Autenticarse</button>
+            </form>
+        </body>
+    </html>
+    """
 
-@app.route('/auth/<provider>', methods=['POST'])
-def authenticate(provider):
+@app.route('/auth', methods=['POST'])
+def authenticate():
     """
-    El cliente de la VPS hace una solicitud al intermediario para elegir el proveedor de autenticación
-    (Microsoft o Google) para obtener la información del usuario.
+    Redirige al cliente al proveedor de autenticación seleccionado.
     """
-    if provider == 'microsoft':
+    proveedor = request.form.get("proveedor")
+    
+    if proveedor == 'microsoft':
         return redirect(microsoft_login())
-    elif provider == 'google':
+    elif proveedor == 'google':
         return redirect(google_login())
     else:
         return jsonify({'error': 'Proveedor no soportado'}), 400
-
 
 def microsoft_login():
     """
@@ -55,8 +80,7 @@ def microsoft_login():
         SCOPE,
         redirect_uri=url_for("microsoft_authorized", _external=True)
     )
-    return redirect(auth_url)
-
+    return auth_url
 
 @app.route(REDIRECT_PATH)
 def microsoft_authorized():
@@ -80,8 +104,8 @@ def microsoft_authorized():
         name = user_info.get("name")
         roles = user_info.get("roles", ["user"])
 
-        # Retornamos los datos del usuario
-        return jsonify({"email": email, "name": name, "roles": roles})
+        # Enviar los datos de usuario al API en la VPS
+        return redirect(f"http://localhost:5000/usuario?email={email}&name={name}&roles={roles}")
     else:
         return "Error: No se obtuvo el token", 400
 
@@ -98,8 +122,7 @@ def google_login():
         redirect_uri=url_for("google_authorized", _external=True),
         scope=["openid", "email", "profile"],
     )
-    return redirect(request_uri)
-
+    return request_uri
 
 @app.route('/google/authorized')
 def google_authorized():
@@ -135,10 +158,10 @@ def google_authorized():
         name = userinfo_response.json()["name"]
         roles = ["user"]
 
-        return jsonify({"email": email, "name": name, "roles": roles})
+        # Enviar los datos de usuario al API en la VPS
+        return redirect(f"http://localhost:5000/usuario?email={email}&name={name}&roles={roles}")
     else:
         return "Error: No se pudo verificar el correo electrónico de Google.", 400
 
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5000)
