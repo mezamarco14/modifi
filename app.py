@@ -1,5 +1,7 @@
 import requests
-from flask import Flask, redirect, request, url_for, session
+import jwt
+import datetime
+from flask import Flask, redirect, request, url_for
 from msal import ConfidentialClientApplication
 from oauthlib.oauth2 import WebApplicationClient
 import os
@@ -71,10 +73,12 @@ def authorized():
         if not roles:
             roles = ["user"]
 
-        # Enviar los datos a tu servidor local
-        response = send_data_to_local_server(email, name, roles)
+        # Crear el JWT con los datos del usuario
+        token = create_jwt(email, name, roles)
 
-        return redirect("http://161.132.50.153/")  # Redirigir a la IP final
+        # Redirigir a la IP final con el JWT
+        redirect_url = f"http://161.132.50.153/?token={token}"
+        return redirect(redirect_url)
 
     return "Error al obtener el token de acceso", 400
 
@@ -122,23 +126,26 @@ def google_authorized():
         name = userinfo_response.json()["name"]
         roles = ["user"]
 
-        # Enviar los datos a tu servidor local
-        response = send_data_to_local_server(email, name, roles)
+        # Crear el JWT con los datos del usuario
+        token = create_jwt(email, name, roles)
 
-        return redirect("http://161.132.50.153/")  # Redirigir a la IP final
+        # Redirigir a la IP final con el JWT
+        redirect_url = f"http://161.132.50.153/?token={token}"
+        return redirect(redirect_url)
 
     return "Error: No se pudo verificar el correo electrónico de Google.", 400
 
-# Función para enviar los datos al servidor local
-def send_data_to_local_server(email, name, roles):
-    url = "http://192.168.18.36/receive_data"  # IP de tu servidor local
+# Función para crear el JWT
+def create_jwt(email, name, roles):
     payload = {
-        "email": email,
-        "name": name,
-        "roles": roles
+        'sub': email,
+        'name': name,
+        'roles': roles,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
     }
-    response = requests.post(url, json=payload)
-    return response
+    secret_key = os.getenv("JWT_SECRET_KEY", "default_secret_key")
+    token = jwt.encode(payload, secret_key, algorithm="HS256")
+    return token
 
 # Arrancar la aplicación Flask en el puerto 5000
 if __name__ == "__main__":
