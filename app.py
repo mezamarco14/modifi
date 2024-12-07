@@ -1,14 +1,25 @@
 import requests
-import jwt
-import datetime
-from flask import Flask, redirect, request, url_for
+from flask import Flask, redirect, request, jsonify, session, url_for
 from msal import ConfidentialClientApplication
 from oauthlib.oauth2 import WebApplicationClient
 import os
+from user_agents import parse  # Instalar con `pip install pyyaml user-agents`
+from pymongo import MongoClient
+import certifi
 
 # Inicializar la aplicación Flask
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")
+
+# Conexión a MongoDB Atlas
+MONGO_URI = os.getenv("MONGO_URI")
+client = MongoClient(
+    MONGO_URI,
+    tls=True,
+    tlsCAFile=certifi.where()
+)
+db = client['db_Upt_Usuarios']
+accesos_users_collection = db['Accesos_users']
 
 # Variables de entorno para Microsoft (Azure)
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -35,12 +46,27 @@ google_client = WebApplicationClient(GOOGLE_CLIENT_ID)
 # Ruta de inicio de sesión
 @app.route('/')
 def index():
-    return '''
-        <h1>Bienvenido</h1>
-        <p>Inicia sesión con:</p>
-        <a href="/login">Microsoft</a><br>
-        <a href="/google/login">Google</a>
-    '''
+    # Verificar si el usuario está autenticado
+    if session.get("user"):
+        # Detectar dispositivo móvil
+        user_agent = request.headers.get("User-Agent")
+        ua = parse(user_agent)
+        if ua.is_mobile:
+            # Si es móvil, mostrar los datos en la interfaz
+            return f"Hola, {session['user']['name']}! Roles: {session.get('roles', [])}"
+        else:
+            # Si es web, redirigir a la IP final
+            email = session['user']['email']
+            name = session['user']['name']
+            roles = session.get('roles', [])
+            return redirect(f"http://161.132.50.153/?email={email}&name={name}&roles={','.join(roles)}")
+    else:
+        return '''
+            <h1>Bienvenido</h1>
+            <p>Inicia sesión con:</p>
+            <a href="/login">Microsoft</a><br>
+            <a href="/google/login">Google</a>
+        '''
 
 # Ruta para iniciar sesión con Microsoft
 @app.route('/login')
@@ -73,12 +99,19 @@ def authorized():
         if not roles:
             roles = ["user"]
 
-        # Crear el JWT con los datos del usuario
-        token = create_jwt(email, name, roles)
+        # Guardar en la sesión
+        session['user'] = {'email': email, 'name': name}
+        session['roles'] = roles
 
-        # Redirigir a la IP final con el JWT
-        redirect_url = f"http://161.132.50.153/?token={token}"
-        return redirect(redirect_url)
+        # Guardar en la base de datos
+        user_data = {
+            "email": email,
+            "name": name,
+            "roles": roles
+        }
+        accesos_users_collection.insert_one(user_data)
+
+        return redirect("/")  # Redirigir al índice
 
     return "Error al obtener el token de acceso", 400
 
@@ -126,26 +159,31 @@ def google_authorized():
         name = userinfo_response.json()["name"]
         roles = ["user"]
 
-        # Crear el JWT con los datos del usuario
-        token = create_jwt(email, name, roles)
+        # Guardar en la sesión
+        session['user'] = {'email': email, 'name': name}
+        session['roles'] = roles
 
-        # Redirigir a la IP final con el JWT
-        redirect_url = f"http://161.132.50.153/?token={token}"
-        return redirect(redirect_url)
+        # Guardar en la base de datos
+        user_data = {
+            "email": email,
+            "name": name,
+            "roles": roles
+        }
+        accesos_users_collection.insert_one(user_data)
+
+        return redirect("/")  # Redirigir al índice
 
     return "Error: No se pudo verificar el correo electrónico de Google.", 400
 
-# Función para crear el JWT
-def create_jwt(email, name, roles):
-    payload = {
-        'sub': email,
-        'name': name,
-        'roles': roles,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-    }
-    secret_key = os.getenv("JWT_SECRET_KEY", "default_secret_key")
-    token = jwt.encode(payload, secret_key, algorithm="HS256")
-    return token
+# Ruta de logout
+@app.route('/logout')
+def logout():
+    # Limpiar los datos de la sesión
+    session.pop('user', None)
+    session.pop('roles', None)
+
+    # Redirigir al inicio después de cerrar sesión
+    return redirect("/")
 
 # Arrancar la aplicación Flask en el puerto 5000
 if __name__ == "__main__":
